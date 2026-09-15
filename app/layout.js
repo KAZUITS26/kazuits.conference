@@ -1,4 +1,5 @@
 import './globals.css';
+import ChatWidget from './components/ChatWidget';
 
 export const metadata = {
   title: 'Регистрация на конференцию',
@@ -8,7 +9,10 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body>
+        {children}
+        <ChatWidget />
+      </body>
     </html>
   );
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { checkDocx, checkFileName } from '@/lib/docxChecker';
+import { checkDocx, checkApplicationDocx, checkFileName } from '@/lib/docxChecker';
 import { getSupabaseAdmin } from '@/lib/supabase';
 import { sendEmails } from '@/lib/email';
 
@@ -49,6 +49,17 @@ export async function POST(req) {
     // Проверка оформления статьи
     const { overallOk, results } = await checkDocx(articleBuffer, { fullName, articleTitle });
 
+    // Проверка файла заявки (базовая — без точного шаблона полей)
+    let applicationOk = true;
+    if (applicationFile) {
+      const appCheck = await checkApplicationDocx(applicationBuffer);
+      applicationOk = appCheck.overallOk;
+      results.push(
+        { label: '— Проверка файла заявки —', ok: null, detail: '', severity: 'manual' },
+        ...appCheck.results
+      );
+    }
+
     if (!articleNameOk) {
       results.unshift({
         label: 'Имя файла статьи',
@@ -66,7 +77,7 @@ export async function POST(req) {
       });
     }
 
-    const finalOk = overallOk && articleNameOk && (applicationFile ? applicationNameOk : true);
+    const finalOk = overallOk && articleNameOk && applicationOk && (applicationFile ? applicationNameOk : true);
     const checkSummary = summarize(results);
 
     // Сохранение в Supabase (база + файлы)

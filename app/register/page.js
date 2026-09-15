@@ -80,7 +80,7 @@ export default function RegisterPage() {
 
         <label>Файл заявки (docx)</label>
         <input type="file" name="applicationFile" accept=".docx" />
-        <div className="file-hint">Формат имени: «Заявка Фамилия И.О..docx»</div>
+        <div className="file-hint">Формат имени: «Заявка Фамилия И.О..docx». Файл будет проверен на корректность и заполненность.</div>
 
         <label>Файл статьи (docx) *</label>
         <input type="file" name="articleFile" accept=".docx" required />
