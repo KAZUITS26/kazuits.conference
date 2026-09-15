@@ -7,7 +7,7 @@ export async function POST(req) {
   try {
     const { messages } = await req.json();
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
         { error: 'ИИ-ассистент временно недоступен (не задан ключ API).' },
@@ -19,29 +19,44 @@ export async function POST(req) {
       return NextResponse.json({ error: 'Пустое сообщение.' }, { status: 400 });
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 700,
-        system: SYSTEM_PROMPT,
-        messages: messages.map(m => ({ role: m.role, content: m.content }))
-      })
-    });
+    // Gemini не различает системную роль в истории — передаём системный
+    // промпт отдельным полем systemInstruction, а историю переводим в
+    // формат Gemini: role "model" вместо "assistant", поле "parts" вместо "content".
+    const contents = messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+
+    const model = 'gemini-2.5-flash';
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: SYSTEM_PROMPT }]
+          },
+          contents,
+          generationConfig: {
+            maxOutputTokens: 700
+          }
+        })
+      }
+    );
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error('Anthropic API error:', errText);
+      console.error('Gemini API error:', errText);
       return NextResponse.json({ error: 'Ошибка при обращении к ИИ-ассистенту.' }, { status: 502 });
     }
 
     const data = await response.json();
-    const text = data.content?.map(c => c.text || '').join('\n') || 'Извините, не удалось сформировать ответ.';
+    const text =
+      data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('\n') ||
+      'Извините, не удалось сформировать ответ.';
 
     return NextResponse.json({ reply: text });
   } catch (e) {
