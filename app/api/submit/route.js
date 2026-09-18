@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { checkDocx, checkApplicationDocx, checkFileName } from '@/lib/docxChecker';
-import { getSupabaseAdmin } from '@/lib/supabase';
 import { sendEmails } from '@/lib/email';
+import { appendSubmissionRow } from '@/lib/googleSheets';
 
 export const runtime = 'nodejs';
 
@@ -80,65 +80,65 @@ export async function POST(req) {
     const finalOk = overallOk && articleNameOk && applicationOk && (applicationFile ? applicationNameOk : true);
     const checkSummary = summarize(results);
 
-    // Сохранение в Supabase (база + файлы)
-    let submissionId = null;
+    // Отправка писем: автору — всегда результат проверки; организатору
+    // (konferencia.edu@gmail.com) — только если проверка пройдена, вместе
+    // с файлами заявки и статьи вложениями. Никакие файлы никуда в базу
+    // не сохраняются — только пересылаются по почте.
+    let emailResult = { sent: false };
     try {
-      const supabase = getSupabaseAdmin();
-
-      const articlePath = `articles/${Date.now()}_${articleFile.name}`;
-      await supabase.storage.from('papers').upload(articlePath, articleBuffer, {
-        contentType: articleFile.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-      });
-
-      let applicationPath = null;
-      if (applicationFile) {
-        applicationPath = `applications/${Date.now()}_${applicationFile.name}`;
-        await supabase.storage.from('papers').upload(applicationPath, applicationBuffer, {
-          contentType: applicationFile.type || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-        });
-      }
-
-      const { data, error } = await supabase.from('submissions').insert({
-        full_name: fullName,
-        email,
-        organization,
-        city,
-        country,
-        degree,
-        article_title: articleTitle,
-        section,
-        phone,
-        article_path: articlePath,
-        application_path: applicationPath,
-        check_passed: finalOk,
-        check_summary: checkSummary,
-        status: finalOk ? 'passed' : 'rejected'
-      }).select('id').single();
-
-      if (error) throw error;
-      submissionId = data?.id;
-    } catch (dbErr) {
-      console.error('Supabase error:', dbErr);
-      // Не прерываем процесс полностью — продолжаем, но сообщаем об ошибке сохранения
-    }
-
-    // Отправка писем
-    try {
-      await sendEmails({
+      emailResult = await sendEmails({
         authorEmail: email,
         authorName: fullName,
         articleTitle,
         checkOk: finalOk,
-        checkSummary
+        checkSummary,
+        articleBuffer,
+        articleFileName: articleFile.name,
+        applicationBuffer,
+        applicationFileName: applicationFile ? applicationFile.name : null,
+        organization,
+        city,
+        country,
+        degree,
+        section,
+        phone
       });
     } catch (mailErr) {
       console.error('Email error:', mailErr);
     }
 
+    // Запись строки с данными заявки в Google Sheets — для удобного общего
+    // списка заявок. Только текстовые данные и статус проверки, без самих
+    // файлов (файлы, как и раньше, идут вложениями в письме организатору).
+    try {
+      await appendSubmissionRow([
+        new Date().toISOString(),
+        fullName,
+        email,
+        organization || '',
+        city || '',
+        country || '',
+        degree || '',
+        phone || '',
+        articleTitle,
+        section || '',
+        finalOk ? 'Прошла проверку' : 'Не прошла проверку',
+        articleFile.name,
+        applicationFile ? applicationFile.name : ''
+      ]);
+    } catch (sheetErr) {
+      console.error('Google Sheets error:', sheetErr);
+    }
+
+    // Участникам показываем только автопроверки (зелёные/красные).
+    // Пункты «требует ручной проверки» (жёлтые) видят только организаторы —
+    // они попадают в письмо-копию организатору (checkSummary), но не в этот ответ.
+    const participantResults = results.filter(r => r.severity !== 'manual');
+
     return NextResponse.json({
       ok: finalOk,
-      submissionId,
-      results
+      emailSent: emailResult.sent,
+      results: participantResults
     });
   } catch (e) {
     console.error(e);
