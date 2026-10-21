@@ -43,8 +43,8 @@ export async function POST(req) {
 
     // Проверка имён файлов
     const lastName = fullName.split(' ')[0];
-    const articleNameOk = checkFileName(articleFile.name, 'Статья', lastName);
-    const applicationNameOk = applicationFile ? checkFileName(applicationFile.name, 'Заявка', lastName) : false;
+    const articleNameOk = checkFileName(articleFile.name, 'Статья', fullName);
+    const applicationNameOk = applicationFile ? checkFileName(applicationFile.name, 'Заявка', fullName) : false;
 
     // Проверка оформления статьи
     const { overallOk, results } = await checkDocx(articleBuffer, { fullName, articleTitle });
